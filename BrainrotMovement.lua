@@ -84,7 +84,7 @@ function BrainrotMovement.MoveTo(brainrotModel, targetPosition, duration)
 	state.lastDir = dir
 
 	local runTrack = getTrack(state)
-	if runTrack then
+	if runTrack and not runTrack.IsPlaying then
 		runTrack:Play()
 	end
 end
@@ -138,8 +138,10 @@ end
 
 local function updateBrainrot(state, dt)
 	if not state or not state.PrimaryPart or not state.plot then return end
+
 	local pos = state.PrimaryPart.Position
 	local clamped = clampPlot(state.plot, pos)
+
 	if (pos - clamped).Magnitude > 0.2 then
 		if state.AlignPosition then
 			state.AlignPosition.Position = clamped
@@ -154,17 +156,29 @@ local function updateBrainrot(state, dt)
 			local desiredCf = CFrame.lookAt(pos, pos + state.lastDir)
 			state.AlignOrientation.CFrame = state.AlignOrientation.CFrame:Lerp(desiredCf, math.clamp(lerpspeed * dt, 0, 1))
 		end
+
+		local runTrack = getTrack(state)
+		if runTrack and runTrack.IsPlaying then
+			runTrack:Stop()
+		end
 		return
 	end
 
 	local targ = state.targetPosition - pos
 	local dist = targ.Magnitude
+
+	local runTrack = getTrack(state)
+	if not runTrack then
+		warn("bad")
+	elseif not runTrack.IsPlaying and dist > eps then
+		runTrack:Play()
+	end
+
 	if dist <= eps then
 		state.moving = false
 		state.speed = 0
-		local run = getTrack(state)
-		if run then
-			run:Stop()
+		if runTrack and runTrack.IsPlaying then
+			runTrack:Stop()
 		end
 		return
 	end
@@ -172,17 +186,21 @@ local function updateBrainrot(state, dt)
 	local dir = targ.Unit
 	state.lastDir = dir
 	local moveAmount = dir * (state.speed * dt)
+
 	if moveAmount.Magnitude > dist then
 		moveAmount = dir * dist
 	end
 
 	local newPos = clampPlot(state.plot, pos + moveAmount)
+
+	-- position
 	if state.AlignPosition then
 		state.AlignPosition.Position = newPos
 	else
 		state.PrimaryPart.CFrame = CFrame.new(newPos, newPos + dir)
 	end
 
+	-- rotation
 	if state.AlignOrientation then
 		local desiredCf = CFrame.lookAt(newPos, newPos + dir)
 		state.AlignOrientation.CFrame = state.AlignOrientation.CFrame:Lerp(desiredCf, math.clamp(lerpspeed * dt, 0, 1))
