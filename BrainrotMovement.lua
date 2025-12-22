@@ -11,6 +11,7 @@ local maxspeed = 20
 
 BrainrotMovement.Brainrots = {}
 
+-- builds the ignore table for the brainrots to ignore colliding with (unused)
 local function buildList()
 	local ignore = {}
 	for _, p in pairs(Players:GetPlayers()) do
@@ -20,7 +21,7 @@ local function buildList()
 	end
 	return ignore
 end
-
+-- custom clamp function to give a set area the brainrot can move around in
 local function clampPlot(plotPart, position, margin)
 	margin = margin or 2
 	local cframe = plotPart.CFrame
@@ -31,6 +32,7 @@ local function clampPlot(plotPart, position, margin)
 	return cframe:PointToWorldSpace(clamped)
 end
 
+-- gets the animation track
 local function getTrack(state)
 	if state.runTrack then return state.runTrack end
 	local animator = state.animator
@@ -53,7 +55,7 @@ local function getTrack(state)
 	return runTrack
 end
 
-
+-- moves the brainrot
 function BrainrotMovement.MoveTo(brainrotModel, targetPosition, duration)
 	if not brainrotModel then return end
 	local state = BrainrotMovement.Brainrots[brainrotModel]
@@ -88,7 +90,7 @@ function BrainrotMovement.MoveTo(brainrotModel, targetPosition, duration)
 		runTrack:Play()
 	end
 end
-
+-- adds brainrot to the movement loop
 function BrainrotMovement.Add(brainrotModel, plotPart)
 	if not brainrotModel or not brainrotModel.PrimaryPart or not plotPart then
 		return
@@ -125,7 +127,7 @@ function BrainrotMovement.Add(brainrotModel, plotPart)
 		end
 	end)
 end
-
+-- removes brainrot to the movement loop
 function BrainrotMovement.Remove(brainrotModel)
 	local state = BrainrotMovement.Brainrots[brainrotModel]
 	if not state then return end
@@ -135,7 +137,7 @@ function BrainrotMovement.Remove(brainrotModel)
 	end
 	BrainrotMovement.Brainrots[brainrotModel] = nil
 end
-
+-- updates the brainrot model
 local function updateBrainrot(state, dt)
 	if not state or not state.PrimaryPart or not state.plot then return end
 
@@ -219,20 +221,20 @@ RunService.Heartbeat:Connect(function(dt)
 	end
 end)
 
-
+-- clears all brainrots
 function BrainrotMovement.ClearAll()
 	for m, _ in pairs(BrainrotMovement.Brainrots) do
 		BrainrotMovement.Remove(m)
 	end
 end
-
+-- sets the movement speed of the brainrot
 function BrainrotMovement.SetSpeed(brainrotModel, newSpeed)
 	if not brainrotModel then return end
 	local state = BrainrotMovement.Brainrots[brainrotModel]
 	if not state then return end
 	state.speed = math.clamp(newSpeed, minspeed, maxspeed)
 end
-
+-- pauses the brainrot movement
 function BrainrotMovement.Pause(brainrotModel)
 	if not brainrotModel then return end
 	local state = BrainrotMovement.Brainrots[brainrotModel]
@@ -242,7 +244,7 @@ function BrainrotMovement.Pause(brainrotModel)
 	local run = getTrack(state)
 	if run then run:Stop() end
 end
-
+-- resumes the brainrot movement
 function BrainrotMovement.Resume(brainrotModel)
 	if not brainrotModel then return end
 	local state = BrainrotMovement.Brainrots[brainrotModel]
@@ -253,3 +255,4 @@ function BrainrotMovement.Resume(brainrotModel)
 end
 
 return BrainrotMovement
+
