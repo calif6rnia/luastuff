@@ -9,28 +9,22 @@ local CollectionService = game:GetService("CollectionService")
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
-
--- Module imports
 local AnimationService = require(game:GetService("ServerScriptService").Server.Services.AnimationService)
-
--- Module table
 local BrainrotMovement = {}
 
--- constants
+--[[
+	Movement constants:
+	- LERP_SPEED: speed of the lerp
+	- EPS: Minimum distance for movement completion
+	- MIN/MAX_SPEED: Minimum and max speed for clamping
+]]
 local LERP_SPEED = 8
 local EPS = 0.05
 local MIN_SPEED = 8
 local MAX_SPEED = 20
-
--- Stores per-model state
 BrainrotMovement.Brainrots = {}
 
---[[
-	Builds a list of objects to ignore for collision checks.
-
-	We get the current players at the start so movement logic doesn't accidentally try to path through them.
-    This list is read only for the state and not intended to be kept perfectly with player joins.
-]]
+--[[ Build static ignore list on start  for faster collision checks (won't update). ]]
 local function buildIgnoreList()
 	local ignore = {}
 	for _, p in ipairs(Players:GetPlayers()) do
@@ -41,9 +35,7 @@ local function buildIgnoreList()
 	return ignore
 end
 
---[[
-	The clamps the total area
-]]
+--[[ Clamp position to plot bounds with optional margin. ]]
 local function clampPlot(plotPart, position, margin)
 	margin = margin or 2
 	local cframe = plotPart.CFrame
@@ -61,9 +53,7 @@ local function clampPlot(plotPart, position, margin)
 	return cframe:PointToWorldSpace(clamped)
 end
 
---[[
-	Get and store the brainrot's run animation.
-]]
+--[[ Get/create run animation: prefer AnimationService NPC clip, fallback to model's run animations. ]]
 local function getTrack(state)
 	if state.runTrack then
 		return state.runTrack
@@ -80,7 +70,6 @@ local function getTrack(state)
 		runTrack = AnimationService.GetNPCAnimation(animator, "Run", state.model.Name)
 	end
 
-	-- Fallback try common animation object names on the model
 	if not runTrack then
 		local anim = state.model:FindFirstChild("Run")
 			or state.model:FindFirstChild("run")
@@ -95,12 +84,7 @@ local function getTrack(state)
 	return runTrack
 end
 
---[[
-	Move the brainrot model toward a targetPosition over a duration.
-
-	Clamps the target to the state's plot and computes a clamped speed between
-	MIN_SPEED and MAX_SPEED. If distance is negligible, movement is canceled.
-]]
+--[[ Move to target: clamp pos to plot, compute speed from distance/duration, start run animation if needed, actual movement occurs in updateBrainrot. ]]
 function BrainrotMovement.MoveTo(brainrotModel, targetPosition, duration)
 	if not brainrotModel then
 		return
@@ -115,10 +99,12 @@ function BrainrotMovement.MoveTo(brainrotModel, targetPosition, duration)
 		return
 	end
 
+	-- Ensure target is within plot boundaries
 	targetPosition = clampPlot(state.plot, targetPosition)
 	local dir = targetPosition - state.PrimaryPart.Position
 	local distance = dir.Magnitude
 
+	-- Early exit if already at target
 	if distance <= EPS then
 		state.targetPosition = targetPosition
 		state.duration = 0
@@ -132,6 +118,7 @@ function BrainrotMovement.MoveTo(brainrotModel, targetPosition, duration)
 	local speed = distance / dur
 	speed = math.clamp(speed, MIN_SPEED, MAX_SPEED)
 
+	-- Update movement state
 	state.targetPosition = targetPosition
 	state.duration = dur
 	state.speed = speed
@@ -146,11 +133,7 @@ function BrainrotMovement.MoveTo(brainrotModel, targetPosition, duration)
 	end
 end
 
---[[
-	Add a brainrot model to the movement system.
-
-	This state stores data that is used
-]]
+--[[ Register brainrot: stores model, plot bounds, animation and movement state, and sets up tracking for cleanup. ]]
 function BrainrotMovement.Add(brainrotModel, plotPart)
 	if not brainrotModel or not brainrotModel.PrimaryPart or not plotPart then
 		return
@@ -184,7 +167,7 @@ function BrainrotMovement.Add(brainrotModel, plotPart)
 
 	BrainrotMovement.Brainrots[brainrotModel] = state
 
-	-- Remove from system when the model is removed from the game.
+	-- Automatic cleanup when model is removed
 	local conn
 	conn = brainrotModel.AncestryChanged:Connect(function(_, parent)
 		if not parent then
@@ -194,9 +177,7 @@ function BrainrotMovement.Add(brainrotModel, plotPart)
 	end)
 end
 
---[[
-	Remove a brainrot from the movement system and stop any running animation.
-]]
+--[[ Remove brainrot from movement: stop animations, remove from tracking. ]]
 function BrainrotMovement.Remove(brainrotModel)
 	local state = BrainrotMovement.Brainrots[brainrotModel]
 	if not state then
@@ -211,13 +192,7 @@ function BrainrotMovement.Remove(brainrotModel)
 	BrainrotMovement.Brainrots[brainrotModel] = nil
 end
 
---[[
-	Update a single brainrot state for the current delta.
-
-	This function clamps position to the plot, handles Align constraints when
-	present, starts/stops the run animation as appropriate, and moves the NPC
-	toward the targetPosition at the computed speed.
-]]
+--[[ brainrot updater: keeps model inside plot, moves to target, manages animations, and uses AlignConstraints for smooth physics. ]]
 local function updateBrainrot(state, dt)
 	if not state or not state.PrimaryPart or not state.plot then
 		return
@@ -226,7 +201,7 @@ local function updateBrainrot(state, dt)
 	local pos = state.PrimaryPart.Position
 	local clamped = clampPlot(state.plot, pos)
 
-	-- If the part drifted outside the plot, snap/align it back in.
+	-- plot correction
 	if (pos - clamped).Magnitude > 0.2 then
 		if state.AlignPosition then
 			state.AlignPosition.Position = clamped
@@ -236,8 +211,7 @@ local function updateBrainrot(state, dt)
 		pos = clamped
 	end
 
-	-- If not currently moving, lerp orientation toward last known heading and
-	-- ensure any run animation is stopped.
+	-- Handle idle state (no movement)
 	if not state.moving or not state.targetPosition then
 		if state.AlignOrientation then
 			local desiredCf = CFrame.lookAt(pos, pos + state.lastDir)
@@ -255,14 +229,15 @@ local function updateBrainrot(state, dt)
 	local targ = state.targetPosition - pos
 	local dist = targ.Magnitude
 
+	-- Manage run animation based on movement state
 	local runTrack = getTrack(state)
 	if not runTrack then
-		-- Helpful warning to identify missing animations for the model.
-		warn("Failed to resolve run animation for model: " .. tostring(state.model and state.model.Name))
+		warn("Failed to get run animation")
 	elseif not runTrack.IsPlaying and dist > EPS then
 		runTrack:Play()
 	end
 
+	-- Check if reached destination
 	if dist <= EPS then
 		state.moving = false
 		state.speed = 0
@@ -282,14 +257,14 @@ local function updateBrainrot(state, dt)
 
 	local newPos = clampPlot(state.plot, pos + moveAmount)
 
-	-- Position update using AlignPosition when available to keep the physics engine in sync, otherwise set the CFrame directly.
+	-- Update position using AlignPosition if available, otherwise use CFrame
 	if state.AlignPosition then
 		state.AlignPosition.Position = newPos
 	else
 		state.PrimaryPart.CFrame = CFrame.new(newPos, newPos + dir)
 	end
 
-	-- Rotation, prefer AlignOrientation if present, otherwise set PrimaryPart CFrame.
+	-- Update rotation with smoothing
 	if state.AlignOrientation then
 		local desiredCf = CFrame.lookAt(newPos, newPos + dir)
 		state.AlignOrientation.CFrame = state.AlignOrientation.CFrame:Lerp(desiredCf, math.clamp(LERP_SPEED * dt, 0, 1))
@@ -298,7 +273,11 @@ local function updateBrainrot(state, dt)
 	end
 end
 
--- Heartbeat loop, iterate states, remove invalid entries, and update valid ones.
+--[[
+	Main update loop - processes all active brainrots every frame.
+	
+	This Heartbeat connection ensures smooth, movement.
+]]
 RunService.Heartbeat:Connect(function(dt)
 	for model, state in pairs(BrainrotMovement.Brainrots) do
 		if not model or not model.Parent or not state.PrimaryPart or not state.plot then
@@ -310,7 +289,9 @@ RunService.Heartbeat:Connect(function(dt)
 end)
 
 --[[
-	Remove all managed brainrot models from the system.
+	Removes all brainrots from the system.
+	
+	Useful for cleanup during game
 ]]
 function BrainrotMovement.ClearAll()
 	for m, _ in pairs(BrainrotMovement.Brainrots) do
@@ -319,9 +300,9 @@ function BrainrotMovement.ClearAll()
 end
 
 --[[
-	Set the movement speed for a specific brainrot. The value is clamped to the
-	allowed speed range so callers don't accidentally disable movement by
-	providing invalid numbers.
+	Sets movement speed for a specific brainrot.
+	
+	The speed is clamped to prevent values outside the normal range
 ]]
 function BrainrotMovement.SetSpeed(brainrotModel, newSpeed)
 	if not brainrotModel then
@@ -337,7 +318,9 @@ function BrainrotMovement.SetSpeed(brainrotModel, newSpeed)
 end
 
 --[[
-	Pause movement and stop the run animation for the given brainrot.
+	Pauses movement for a brainrot.
+	
+	Stops both movement and animation while keeping the current state
 ]]
 function BrainrotMovement.Pause(brainrotModel)
 	if not brainrotModel then
@@ -359,8 +342,10 @@ function BrainrotMovement.Pause(brainrotModel)
 end
 
 --[[
-	Resume movement for a paused brainrot. This does not change speed; it only
-	allows the updater to continue moving the model toward its target.
+	Resumes movement for a paused brainrot.
+	
+	Assumes the brainrot already has a target position set.
+	The animation is restarted to match the movement state.
 ]]
 function BrainrotMovement.Resume(brainrotModel)
 	if not brainrotModel then
